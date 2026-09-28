@@ -1,0 +1,6 @@
+{
+  "name": "GenAI Knowledge & Research Workspace",
+  "description": "Production-grade GenAI & Agentic AI workspace for multi-document RAG, semantic search, grounded research tools, and LLMOps evaluation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
