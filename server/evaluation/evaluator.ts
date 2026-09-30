@@ -1,4 +1,5 @@
 import { getGeminiClient, GEMINI_TEXT_MODEL } from '../core/gemini';
+import { generateContentWithResilience } from '../core/modelResilience';
 import { executeRAGPipeline } from '../rag/pipeline';
 import { EvaluationScore } from '../../src/types/metrics';
 
@@ -90,9 +91,7 @@ Return ONLY valid JSON matching this schema:
 }`;
 
   try {
-    const ai = getGeminiClient();
-    const result = await ai.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+    const result = await generateContentWithResilience({
       contents: evalPrompt,
       config: {
         temperature: 0.1,

@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { getGeminiClient, GEMINI_TEXT_MODEL } from '../core/gemini';
+import { generateContentStreamWithResilience } from '../core/modelResilience';
 import { retrieveHybridChunks } from '../rag/retriever';
 import { buildGroundedRAGPrompt } from '../rag/promptBuilder';
 import { Citation, StreamEvent } from '../../src/types/rag';
@@ -126,9 +127,8 @@ export async function streamGroundedRAG(
       return;
     }
 
-    // Step 5: Live Streaming via @google/genai SDK
-    const responseStream = await ai.models.generateContentStream({
-      model: GEMINI_TEXT_MODEL,
+    // Step 5: Live Streaming via Resilient Model Fallback Pipeline
+    const { stream: responseStream, modelUsed } = await generateContentStreamWithResilience({
       contents,
       config: {
         systemInstruction,
@@ -174,7 +174,20 @@ export async function streamGroundedRAG(
 
     res.end();
   } catch (error: unknown) {
-    const errMsg = error instanceof Error ? error.message : 'Streaming RAG failed';
+    let errMsg = 'Streaming RAG failed';
+    if (error instanceof Error) {
+      errMsg = error.message;
+    } else if (typeof error === 'string') {
+      errMsg = error;
+    } else {
+      errMsg = JSON.stringify(error);
+    }
+
+    // Format cleaner message if 503 / high demand is returned
+    if (errMsg.includes('503') || errMsg.includes('high demand') || errMsg.includes('UNAVAILABLE')) {
+      errMsg = "Google Gemini is currently experiencing a temporary demand spike (503). Retrying in a few seconds or asking a simpler question usually resolves this immediately.";
+    }
+
     console.error('[STREAMING RAG ERROR]:', errMsg);
     sendEvent({
       type: 'error',

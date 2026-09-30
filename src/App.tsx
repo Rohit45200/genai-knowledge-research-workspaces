@@ -119,9 +119,26 @@ export default function App() {
   const handleUploadFile = async (file: File) => {
     setIsUploading(true);
     try {
-      const text = await file.text();
-      await uploadDocument(file.name, text, file.type || 'text/plain');
+      let content = '';
+      const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+
+      if (isPdf) {
+        // Read binary PDF safely as Data URL (Base64) to prevent garbled text
+        content = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      } else {
+        content = await file.text();
+      }
+
+      const uploadedDoc = await uploadDocument(file.name, content, file.type || 'text/plain');
       await loadBackendData();
+      if (uploadedDoc?.id) {
+        setSelectedDocIds(prev => Array.from(new Set([...prev, uploadedDoc.id])));
+      }
     } catch (err) {
       console.error('Upload failed:', err);
     } finally {
@@ -204,12 +221,31 @@ export default function App() {
               return m;
             }));
           } else if (event.type === 'error') {
+            let errorText = event.content || 'Streaming interrupted';
+            try {
+              if (errorText.includes('{')) {
+                const parsed = JSON.parse(errorText);
+                if (parsed.error?.message) {
+                  const inner = typeof parsed.error.message === 'string' && parsed.error.message.includes('{') 
+                    ? JSON.parse(parsed.error.message) 
+                    : null;
+                  errorText = inner?.error?.message || parsed.error.message;
+                }
+              }
+            } catch (e) {
+              // keep as is
+            }
+
+            if (errorText.includes('503') || errorText.includes('high demand')) {
+              errorText = 'Google Gemini servers are currently experiencing peak traffic (503). Retrying your query or waiting a few seconds will work.';
+            }
+
             setMessages(prev => prev.map(m => {
               if (m.id === assistantMsgId) {
                 return {
                   ...m,
                   isStreaming: false,
-                  content: m.content + `\n\n⚠️ Streaming Error: ${event.content}`
+                  content: m.content ? `${m.content}\n\n⚠️ ${errorText}` : `⚠️ ${errorText}`
                 };
               }
               return m;

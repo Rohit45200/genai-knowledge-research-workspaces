@@ -1,4 +1,6 @@
 import { cleanDocumentText } from './cleaner';
+// @ts-ignore
+import * as pdfParseModule from 'pdf-parse';
 
 export interface ParsedDocument {
   name: string;
@@ -16,38 +18,80 @@ export interface ParsedDocument {
 
 /**
  * Universal Multi-Format Document Parser
- * Ingests raw buffers or strings for Markdown, TXT, JSON, CSV, and PDF representations.
+ * Ingests raw buffers, Base64 strings, or text for Markdown, TXT, JSON, CSV, and PDF representations.
  */
-export function parseDocument(
+export async function parseDocument(
   fileName: string,
   rawContent: string | Buffer,
   mimeType?: string
-): ParsedDocument {
+): Promise<ParsedDocument> {
   const extension = fileName.split('.').pop()?.toLowerCase() || 'txt';
   let rawText = '';
+  let extractedText = '';
 
-  if (typeof rawContent === 'string') {
-    rawText = rawContent;
-  } else if (Buffer.isBuffer(rawContent)) {
-    rawText = rawContent.toString('utf-8');
-  }
+  const isPdf = extension === 'pdf' || mimeType === 'application/pdf';
 
-  // Handle format-specific extraction
-  let extractedText = rawText;
-
-  if (extension === 'json') {
+  if (isPdf) {
     try {
-      const parsedJson = JSON.parse(rawText);
-      // If JSON is array or object, format key-values cleanly for semantic chunking
-      extractedText = formatJsonForRAG(parsedJson);
-    } catch {
+      let pdfBuffer: Buffer;
+      if (Buffer.isBuffer(rawContent)) {
+        pdfBuffer = rawContent;
+      } else if (typeof rawContent === 'string') {
+        if (rawContent.startsWith('data:application/pdf;base64,')) {
+          const base64Data = rawContent.replace(/^data:application\/pdf;base64,/, '');
+          pdfBuffer = Buffer.from(base64Data, 'base64');
+        } else if (/^[A-Za-z0-9+/=]+$/.test(rawContent.trim().slice(0, 100)) && rawContent.length > 200) {
+          pdfBuffer = Buffer.from(rawContent.trim(), 'base64');
+        } else {
+          // Fallback if sent as binary string
+          pdfBuffer = Buffer.from(rawContent, 'binary');
+        }
+      } else {
+        pdfBuffer = Buffer.from([]);
+      }
+
+      // Check if module provides PDFParse class or callable function
+      const PDFClass = (pdfParseModule as any).PDFParse;
+      if (typeof PDFClass === 'function') {
+        const parser = new PDFClass({ data: pdfBuffer });
+        const res = await parser.getText();
+        extractedText = res?.text || '';
+      } else if (typeof (pdfParseModule as any).default === 'function') {
+        const res = await (pdfParseModule as any).default(pdfBuffer);
+        extractedText = res?.text || '';
+      } else if (typeof pdfParseModule === 'function') {
+        const res = await (pdfParseModule as any)(pdfBuffer);
+        extractedText = res?.text || '';
+      }
+
+      if (!extractedText && typeof rawContent === 'string') {
+        extractedText = extractPdfTextFallback(rawContent);
+      }
+      rawText = extractedText;
+    } catch (pdfErr) {
+      console.warn('PDF parsing error, falling back to raw text extraction:', pdfErr);
+      extractedText = typeof rawContent === 'string' ? extractPdfTextFallback(rawContent) : '';
+      rawText = extractedText;
+    }
+  } else {
+    if (typeof rawContent === 'string') {
+      rawText = rawContent;
+    } else if (Buffer.isBuffer(rawContent)) {
+      rawText = rawContent.toString('utf-8');
+    }
+
+    if (extension === 'json') {
+      try {
+        const parsedJson = JSON.parse(rawText);
+        extractedText = formatJsonForRAG(parsedJson);
+      } catch {
+        extractedText = rawText;
+      }
+    } else if (extension === 'csv') {
+      extractedText = formatCsvForRAG(rawText);
+    } else {
       extractedText = rawText;
     }
-  } else if (extension === 'csv') {
-    extractedText = formatCsvForRAG(rawText);
-  } else if (extension === 'pdf') {
-    // For text-extracted PDF payloads or Base64/plain stream representations
-    extractedText = extractPdfText(rawText);
   }
 
   const cleanedText = cleanDocumentText(extractedText);
@@ -119,10 +163,9 @@ function formatCsvForRAG(csvText: string): string {
 }
 
 /**
- * Sanitizes PDF text dumps (e.g. removes PDF object stream artifacts if raw buffer is passed)
+ * Fallback regex-based extraction if pdf-parse fails on malformed files
  */
-function extractPdfText(text: string): string {
-  // If text contains PDF binary headers, extract textual chunks matching stream blocks
+function extractPdfTextFallback(text: string): string {
   if (text.includes('%PDF-')) {
     const textMatches = text.match(/\(([^)]+)\)\s*Tj/g) || text.match(/\[([^\]]+)\]\s*TJ/g);
     if (textMatches && textMatches.length > 0) {

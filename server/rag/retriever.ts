@@ -60,10 +60,18 @@ export async function retrieveHybridChunks(options: RetrievalOptions): Promise<R
   });
 
   // 3. Filter by minimum combined threshold and sort
-  const filtered = fusedScores
+  // If threshold is strict, ensure top candidate is preserved if score > 0.12
+  let filtered = fusedScores
     .filter(r => r.similarityScore >= minSimilarity)
     .sort((a, b) => b.similarityScore - a.similarityScore)
     .slice(0, topK);
+
+  if (filtered.length === 0 && fusedScores.length > 0) {
+    const highest = [...fusedScores].sort((a, b) => b.similarityScore - a.similarityScore)[0];
+    if (highest && highest.similarityScore >= 0.12) {
+      filtered = [highest];
+    }
+  }
 
   return filtered.map((item, idx) => ({
     ...item,

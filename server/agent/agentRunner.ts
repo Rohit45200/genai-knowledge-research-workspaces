@@ -1,4 +1,5 @@
 import { getGeminiClient, GEMINI_TEXT_MODEL } from '../core/gemini';
+import { generateContentWithResilience } from '../core/modelResilience';
 import { AGENT_TOOLS, executeTool } from './tools';
 import { AgentStep, ToolExecutionRecord } from '../../src/types/agent';
 import { metricsTracker } from '../monitoring/metricsTracker';
@@ -78,8 +79,7 @@ Step ${currentIteration}: Decide your next Thought and Action (or Final Answer):
         responseText = `Thought: I have retrieved the factual context from the knowledge store and can now synthesize a final answer.\nFinal Answer: Based on document inspection, the architecture employs recursive character splitting with 500-character segments and 100-character overlap, paired with 768-dimensional vector cosine retrieval.`;
       }
     } else {
-      const response = await ai.models.generateContent({
-        model: GEMINI_TEXT_MODEL,
+      const response = await generateContentWithResilience({
         contents: prompt,
         config: {
           systemInstruction: systemPrompt,

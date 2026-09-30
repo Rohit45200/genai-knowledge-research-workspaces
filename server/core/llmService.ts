@@ -1,4 +1,5 @@
 import { getGeminiClient, GEMINI_TEXT_MODEL } from '../core/gemini';
+import { generateContentWithResilience } from '../core/modelResilience';
 import { buildGroundedRAGPrompt } from '../rag/promptBuilder';
 import { DocumentChunk } from '../../src/types/document';
 import { metricsTracker } from '../monitoring/metricsTracker';
@@ -61,8 +62,7 @@ export async function generateGroundedResponse(
   }
 
   try {
-    const response = await ai.models.generateContent({
-      model: GEMINI_TEXT_MODEL,
+    const response = await generateContentWithResilience({
       contents,
       config: {
         systemInstruction,

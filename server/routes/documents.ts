@@ -42,7 +42,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 
   // 1. Universal Parsing & Cleaning
-  const parsed = parseDocument(name, content, type);
+  const parsed = await parseDocument(name, content, type);
 
   if (!parsed.cleanedText || parsed.cleanedText.trim().length === 0) {
     return res.status(400).json({ success: false, error: 'Document contains no extractable text' });
